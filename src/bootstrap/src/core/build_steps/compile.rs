@@ -354,10 +354,7 @@ fn copy_third_party_objects(
 
     if target == "x86_64-fortanix-unknown-sgx"
         || builder.config.llvm_libunwind(target) == LlvmLibunwind::InTree
-            && (target.contains("linux")
-                || target.contains("fuchsia")
-                || target.contains("aix")
-                || target.contains("hexagon"))
+            && (target.contains("linux") || target.contains("fuchsia") || target.contains("aix"))
     {
         let libunwind_path =
             copy_llvm_libunwind(builder, target, &builder.sysroot_target_libdir(*compiler, target));
@@ -1430,12 +1427,10 @@ fn rustc_llvm_env(builder: &Builder<'_>, cargo: &mut Cargo, target: TargetSelect
     if builder.config.llvm_enzyme {
         cargo.env("LLVM_ENZYME", "1");
     }
-    let llvm::LlvmResult { host_llvm_config, .. } = builder.ensure(llvm::Llvm { target });
     if builder.config.llvm_offload {
-        builder.ensure(llvm::OmpOffload { target });
         cargo.env("LLVM_OFFLOAD", "1");
     }
-
+    let llvm::LlvmResult { host_llvm_config, .. } = builder.ensure(llvm::Llvm { target });
     cargo.env("LLVM_CONFIG", &host_llvm_config);
 
     // Some LLVM linker flags (-L and -l) may be needed to link `rustc_llvm`. Its build script
@@ -2279,41 +2274,13 @@ impl Step for Assemble {
             builder.compiler(target_compiler.stage - 1, builder.config.host_target);
 
         // Build enzyme
-        if builder.config.llvm_enzyme && !builder.config.dry_run() {
+        if builder.config.llvm_enzyme {
             debug!("`llvm_enzyme` requested");
-            let enzyme_install = builder.ensure(llvm::Enzyme { target: build_compiler.host });
-            if let Some(llvm_config) = builder.llvm_config(builder.config.host_target) {
-                let llvm_version_major = llvm::get_llvm_version_major(builder, &llvm_config);
-                let lib_ext = std::env::consts::DLL_EXTENSION;
-                let libenzyme = format!("libEnzyme-{llvm_version_major}");
-                let src_lib =
-                    enzyme_install.join("build/Enzyme").join(&libenzyme).with_extension(lib_ext);
-                let libdir = builder.sysroot_target_libdir(build_compiler, build_compiler.host);
-                let target_libdir =
-                    builder.sysroot_target_libdir(target_compiler, target_compiler.host);
-                let dst_lib = libdir.join(&libenzyme).with_extension(lib_ext);
-                let target_dst_lib = target_libdir.join(&libenzyme).with_extension(lib_ext);
-                builder.copy_link(&src_lib, &dst_lib, FileType::NativeLibrary);
-                builder.copy_link(&src_lib, &target_dst_lib, FileType::NativeLibrary);
-            }
-        }
-
-        if builder.config.llvm_offload && !builder.config.dry_run() {
-            debug!("`llvm_offload` requested");
-            let offload_install = builder.ensure(llvm::OmpOffload { target: build_compiler.host });
-            if let Some(_llvm_config) = builder.llvm_config(builder.config.host_target) {
-                let target_libdir =
-                    builder.sysroot_target_libdir(target_compiler, target_compiler.host);
-                for p in offload_install.offload_paths() {
-                    let libname = p.file_name().unwrap();
-                    let dst_lib = target_libdir.join(libname);
-                    builder.resolve_symlink_and_copy(&p, &dst_lib);
-                }
-                // FIXME(offload): Add amdgcn-amd-amdhsa and nvptx64-nvidia-cuda folder
-                // This one is slightly more tricky, since we have the same file twice, in two
-                // subfolders for amdgcn and nvptx64. We'll likely find two more in the future, once
-                // Intel and Spir-V support lands in offload.
-            }
+            let enzyme = builder.ensure(llvm::Enzyme { target: build_compiler.host });
+            let target_libdir =
+                builder.sysroot_target_libdir(target_compiler, target_compiler.host);
+            let target_dst_lib = target_libdir.join(enzyme.enzyme_filename());
+            builder.copy_link(&enzyme.enzyme_path(), &target_dst_lib, FileType::NativeLibrary);
         }
 
         // Build the libraries for this compiler to link to (i.e., the libraries
