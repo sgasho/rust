@@ -975,6 +975,7 @@ impl Build {
         self.out.join(&*target.triple).join("enzyme")
     }
 
+    #[allow(dead_code)]
     fn offload_out(&self, target: TargetSelection) -> PathBuf {
         self.out.join(&*target.triple).join("offload")
     }
