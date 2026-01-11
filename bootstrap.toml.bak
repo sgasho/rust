@@ -1,0 +1,64 @@
+# Use different pre-set defaults than the global defaults.
+#
+# See `src/bootstrap/defaults` for more information.
+# Note that this has no default value (x.py uses the defaults in `bootstrap.example.toml`).
+profile = 'dist'
+
+[llvm]
+
+# Currently, we only support this when building LLVM for the build triple.
+#
+# Note that many of the LLVM options are not currently supported for
+# downloading. Currently only the "assertions" option can be toggled.
+download-ci-llvm = false
+
+# Indicates whether the LLVM assertions are enabled or not
+# NOTE: When assertions are disabled, bugs in the integration between rustc and LLVM can lead to
+# unsoundness (segfaults, etc.) in the rustc process itself, not just in the generated code.
+assertions = true
+
+# Whether to build Enzyme as AutoDiff backend.
+enzyme = true
+
+# Whether to use Ninja to build LLVM. This runs much faster than make.
+ninja = true
+
+# Whether to build LLVM as a dynamically linked library (as opposed to statically linked).
+# Under the hood, this passes `--shared` to llvm-config.
+# NOTE: To avoid performing LTO multiple times, we suggest setting this to `true` when `thin-lto` is enabled.
+link-shared = true
+
+[gcc]
+
+[build]
+
+# Whether to build documentation by default. If false, rustdoc and
+# friends will still be compiled but they will not be used to generate any
+# documentation.
+#
+# You can still build documentation when this is disabled by explicitly passing paths,
+# e.g. `x doc library`.
+docs = false
+
+# Arguments passed to the `./configure` script, used during distcheck. You
+# probably won't fill this in but rather it's filled in by the `./configure`
+# script. Useful for debugging.
+configure-args = ['--release-channel=nightly', '--enable-llvm-enzyme', '--enable-llvm-link-shared', '--enable-llvm-assertions', '--enable-ninja', '--enable-option-checking', '--disable-docs', '--set', 'llvm.download-ci-llvm=false']
+
+[install]
+
+[rust]
+
+# The "channel" for the Rust build to produce. The stable/beta channels only
+# allow using stable features, whereas the nightly and dev channels allow using
+# nightly features.
+#
+# You can set the channel to "auto-detect" to load the channel name from `src/ci/channel`.
+#
+# If using tarball sources, default value is "auto-detect", otherwise, it's "dev".
+channel = 'nightly'
+
+[dist]
+
+[target.aarch64-apple-darwin]
+
