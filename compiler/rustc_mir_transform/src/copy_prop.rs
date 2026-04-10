@@ -51,6 +51,7 @@ impl<'tcx> crate::MirPass<'tcx> for CopyProp {
         Replacer { tcx, copy_classes: ssa.copy_classes(), unified }.visit_body_preserves_cfg(body);
 
         crate::simplify::remove_unused_definitions(body);
+
     }
 
     fn is_required(&self) -> bool {
