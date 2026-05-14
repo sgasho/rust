@@ -1,0 +1,25 @@
+error[E0308]: arguments to this function are incorrect
+  --> $DIR/type-alias-argument-diagnostic-multiple.rs:8:5
+   |
+LL |     char_pair(left, right);
+   |     ^^^^^^^^^ ----  ----- expected `core::ffi::c_char`, found `u16`
+   |               |
+   |               expected `core::ffi::c_char`, found `u16`
+   |
+note: function defined here
+  --> $DIR/type-alias-argument-diagnostic-multiple.rs:1:15
+   |
+LL | extern "C" fn char_pair(left: core::ffi::c_char, right: core::ffi::c_char) {
+   |               ^^^^^^^^^ -----------------------  ------------------------
+help: you can convert a `u16` to a `core::ffi::c_char` and panic if the converted value doesn't fit
+   |
+LL |     char_pair(left.try_into().unwrap(), right);
+   |                   ++++++++++++++++++++
+help: you can convert a `u16` to a `core::ffi::c_char` and panic if the converted value doesn't fit
+   |
+LL |     char_pair(left, right.try_into().unwrap());
+   |                          ++++++++++++++++++++
+
+error: aborting due to 1 previous error
+
+For more information about this error, try `rustc --explain E0308`.

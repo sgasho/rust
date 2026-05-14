@@ -5,7 +5,7 @@ use core::iter;
 use hir::def_id::LocalDefId;
 use rustc_ast::util::parser::ExprPrecedence;
 use rustc_data_structures::packed::Pu128;
-use rustc_errors::{Applicability, Diag, MultiSpan, listify, msg};
+use rustc_errors::{Applicability, Diag, MultiSpan, a_or_an, listify, msg};
 use rustc_hir::def::{CtorKind, CtorOf, DefKind, Res};
 use rustc_hir::intravisit::Visitor;
 use rustc_hir::lang_items::LangItem;
@@ -286,6 +286,7 @@ impl<'a, 'tcx> FnCtxt<'a, 'tcx> {
         expected: Ty<'tcx>,
         found: Ty<'tcx>,
         expected_ty_expr: Option<&'tcx hir::Expr<'tcx>>,
+        expected_ty_display: Option<&str>,
     ) -> bool {
         let expr = expr.peel_blocks();
         let methods =
@@ -371,7 +372,7 @@ impl<'a, 'tcx> FnCtxt<'a, 'tcx> {
             return true;
         }
 
-        if self.suggest_cast(err, expr, found, expected, expected_ty_expr) {
+        if self.suggest_cast(err, expr, found, expected, expected_ty_expr, expected_ty_display) {
             return true;
         }
 
@@ -3282,6 +3283,7 @@ impl<'a, 'tcx> FnCtxt<'a, 'tcx> {
         checked_ty: Ty<'tcx>,
         expected_ty: Ty<'tcx>,
         expected_ty_expr: Option<&'tcx hir::Expr<'tcx>>,
+        expected_ty_display: Option<&str>,
     ) -> bool {
         if self.tcx.sess.source_map().is_imported(expr.span) {
             // Ignore if span is from within a macro.
@@ -3346,22 +3348,26 @@ impl<'a, 'tcx> FnCtxt<'a, 'tcx> {
             }
         }
 
+        let expected_ty_msg =
+            expected_ty_display.map_or_else(|| expected_ty.to_string(), ToOwned::to_owned);
+        let expected_ty_article =
+            expected_ty_display.map_or_else(|| expected_ty.kind().article(), a_or_an);
         let msg = format!(
             "you can convert {} `{}` to {} `{}`",
             checked_ty.kind().article(),
             checked_ty,
-            expected_ty.kind().article(),
-            expected_ty,
+            expected_ty_article,
+            expected_ty_msg,
         );
         let cast_msg = format!(
             "you can cast {} `{}` to {} `{}`",
             checked_ty.kind().article(),
             checked_ty,
-            expected_ty.kind().article(),
-            expected_ty,
+            expected_ty_article,
+            expected_ty_msg,
         );
         let lit_msg = format!(
-            "change the type of the numeric literal from `{checked_ty}` to `{expected_ty}`",
+            "change the type of the numeric literal from `{checked_ty}` to `{expected_ty_msg}`",
         );
 
         let close_paren = if self.precedence(expr) < ExprPrecedence::Unambiguous {

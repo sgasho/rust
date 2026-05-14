@@ -26,6 +26,27 @@ impl<'a, 'tcx> FnCtxt<'a, 'tcx> {
         expected_ty_expr: Option<&'tcx hir::Expr<'tcx>>,
         error: Option<TypeError<'tcx>>,
     ) {
+        self.emit_type_mismatch_suggestions_with_expected_override(
+            err,
+            expr,
+            expr_ty,
+            expected,
+            expected_ty_expr,
+            None,
+            error,
+        );
+    }
+
+    fn emit_type_mismatch_suggestions_with_expected_override(
+        &self,
+        err: &mut Diag<'_>,
+        expr: &hir::Expr<'tcx>,
+        expr_ty: Ty<'tcx>,
+        expected: Ty<'tcx>,
+        expected_ty_expr: Option<&'tcx hir::Expr<'tcx>>,
+        expected_ty_display: Option<&str>,
+        error: Option<TypeError<'tcx>>,
+    ) {
         if expr_ty == expected {
             return;
         }
@@ -38,7 +59,14 @@ impl<'a, 'tcx> FnCtxt<'a, 'tcx> {
             || self.suggest_remove_last_method_call(err, expr, expected)
             || self.suggest_associated_const(err, expr, expected)
             || self.suggest_semicolon_in_repeat_expr(err, expr, expr_ty)
-            || self.suggest_deref_ref_or_into(err, expr, expected, expr_ty, expected_ty_expr)
+            || self.suggest_deref_ref_or_into(
+                err,
+                expr,
+                expected,
+                expr_ty,
+                expected_ty_expr,
+                expected_ty_display,
+            )
             || self.suggest_option_to_bool(err, expr, expr_ty, expected)
             || self.suggest_compatible_variants(err, expr, expected, expr_ty)
             || self.suggest_non_zero_new_unwrap(err, expr, expected, expr_ty)
@@ -78,6 +106,27 @@ impl<'a, 'tcx> FnCtxt<'a, 'tcx> {
         expected_ty_expr: Option<&'tcx hir::Expr<'tcx>>,
         error: Option<TypeError<'tcx>>,
     ) {
+        self.emit_coerce_suggestions_with_expected_override(
+            err,
+            expr,
+            expr_ty,
+            expected,
+            expected_ty_expr,
+            None,
+            error,
+        );
+    }
+
+    pub(crate) fn emit_coerce_suggestions_with_expected_override(
+        &self,
+        err: &mut Diag<'_>,
+        expr: &hir::Expr<'tcx>,
+        expr_ty: Ty<'tcx>,
+        expected: Ty<'tcx>,
+        expected_ty_expr: Option<&'tcx hir::Expr<'tcx>>,
+        expected_ty_display: Option<&str>,
+        error: Option<TypeError<'tcx>>,
+    ) {
         if expr_ty == expected {
             return;
         }
@@ -98,7 +147,15 @@ impl<'a, 'tcx> FnCtxt<'a, 'tcx> {
         if self.is_destruct_assignment_desugaring(expr) {
             return;
         }
-        self.emit_type_mismatch_suggestions(err, expr, expr_ty, expected, expected_ty_expr, error);
+        self.emit_type_mismatch_suggestions_with_expected_override(
+            err,
+            expr,
+            expr_ty,
+            expected,
+            expected_ty_expr,
+            expected_ty_display,
+            error,
+        );
         self.note_type_is_not_clone(err, expected, expr_ty, expr);
         self.note_internal_mutation_in_method(err, expr, Some(expected), expr_ty);
         self.suggest_method_call_on_range_literal(err, expr, expr_ty, expected);

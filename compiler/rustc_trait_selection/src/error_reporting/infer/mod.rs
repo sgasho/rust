@@ -1322,10 +1322,33 @@ impl<'a, 'tcx> TypeErrCtxt<'a, 'tcx> {
         diag: &mut Diag<'_>,
         cause: &ObligationCause<'tcx>,
         secondary_span: Option<(Span, Cow<'static, str>, bool)>,
+        values: Option<ty::ParamEnvAnd<'tcx, ValuePairs<'tcx>>>,
+        terr: TypeError<'tcx>,
+        prefer_label: bool,
+        override_span: Option<Span>,
+    ) {
+        self.note_type_err_with_expected_override(
+            diag,
+            cause,
+            secondary_span,
+            values,
+            terr,
+            prefer_label,
+            override_span,
+            None,
+        );
+    }
+
+    pub fn note_type_err_with_expected_override(
+        &self,
+        diag: &mut Diag<'_>,
+        cause: &ObligationCause<'tcx>,
+        secondary_span: Option<(Span, Cow<'static, str>, bool)>,
         mut values: Option<ty::ParamEnvAnd<'tcx, ValuePairs<'tcx>>>,
         terr: TypeError<'tcx>,
         prefer_label: bool,
         override_span: Option<Span>,
+        expected_ty_display: Option<&str>,
     ) {
         // We use `override_span` when we want the error to point at a `Span` other than
         // `cause.span`. This is used in E0271, when a closure is passed in where the return type
@@ -1478,7 +1501,12 @@ impl<'a, 'tcx> TypeErrCtxt<'a, 'tcx> {
                         (false, Mismatch::Fixed("existential projection"))
                     }
                 };
-                let Some(vals) = self.values_str(values, cause, diag.long_ty_path()) else {
+                let Some(vals) = self.values_str_with_expected_override(
+                    values,
+                    cause,
+                    diag.long_ty_path(),
+                    expected_ty_display,
+                ) else {
                     // Derived error. Cancel the emitter.
                     // NOTE(eddyb) this was `.cancel()`, but `diag`
                     // is borrowed, so we can't fully defuse it.
@@ -1498,9 +1526,10 @@ impl<'a, 'tcx> TypeErrCtxt<'a, 'tcx> {
         };
         if let Some((secondary_span, secondary_msg, swap_secondary_and_primary)) = secondary_span {
             if swap_secondary_and_primary {
-                let terr = if let Some(infer::ValuePairs::Terms(ExpectedFound {
-                    expected, ..
-                })) = values
+                let terr = if let Some(expected) = expected_ty_display {
+                    Cow::from(format!("expected this to be `{expected}`"))
+                } else if let Some(infer::ValuePairs::Terms(ExpectedFound { expected, .. })) =
+                    values
                 {
                     Cow::from(format!("expected this to be `{expected}`"))
                 } else {
@@ -1518,7 +1547,9 @@ impl<'a, 'tcx> TypeErrCtxt<'a, 'tcx> {
         {
             let e = self.tcx.erase_and_anonymize_regions(e);
             let f = self.tcx.erase_and_anonymize_regions(f);
-            let expected = with_forced_trimmed_paths!(e.sort_string(self.tcx));
+            let expected = expected_ty_display
+                .map(|expected| Cow::from(format!("`{expected}`")))
+                .unwrap_or_else(|| with_forced_trimmed_paths!(e.sort_string(self.tcx)));
             let found = with_forced_trimmed_paths!(f.sort_string(self.tcx));
             if expected == found {
                 label_or_note(span, terr.to_string(self.tcx));
@@ -1981,11 +2012,12 @@ impl<'a, 'tcx> TypeErrCtxt<'a, 'tcx> {
         }
     }
 
-    pub fn report_and_explain_type_error(
+    pub fn report_and_explain_type_error_with_expected_override(
         &self,
         trace: TypeTrace<'tcx>,
         param_env: ty::ParamEnv<'tcx>,
         terr: TypeError<'tcx>,
+        expected_ty_display: Option<&str>,
     ) -> Diag<'a> {
         debug!("report_and_explain_type_error(trace={:?}, terr={:?})", trace, terr);
 
@@ -1998,7 +2030,7 @@ impl<'a, 'tcx> TypeErrCtxt<'a, 'tcx> {
         );
         let mut diag = self.dcx().create_err(failure_code);
         *diag.long_ty_path() = path;
-        self.note_type_err(
+        self.note_type_err_with_expected_override(
             &mut diag,
             &trace.cause,
             None,
@@ -2006,8 +2038,18 @@ impl<'a, 'tcx> TypeErrCtxt<'a, 'tcx> {
             terr,
             false,
             None,
+            expected_ty_display,
         );
         diag
+    }
+
+    pub fn report_and_explain_type_error(
+        &self,
+        trace: TypeTrace<'tcx>,
+        param_env: ty::ParamEnv<'tcx>,
+        terr: TypeError<'tcx>,
+    ) -> Diag<'a> {
+        self.report_and_explain_type_error_with_expected_override(trace, param_env, terr, None)
     }
 
     fn suggest_wrap_to_build_a_tuple(
@@ -2044,9 +2086,21 @@ impl<'a, 'tcx> TypeErrCtxt<'a, 'tcx> {
         cause: &ObligationCause<'tcx>,
         long_ty_path: &mut Option<PathBuf>,
     ) -> Option<(DiagStyledString, DiagStyledString)> {
+        self.values_str_with_expected_override(values, cause, long_ty_path, None)
+    }
+
+    fn values_str_with_expected_override(
+        &self,
+        values: ValuePairs<'tcx>,
+        cause: &ObligationCause<'tcx>,
+        long_ty_path: &mut Option<PathBuf>,
+        expected_ty_display: Option<&str>,
+    ) -> Option<(DiagStyledString, DiagStyledString)> {
         match values {
             ValuePairs::Regions(exp_found) => self.expected_found_str(exp_found),
-            ValuePairs::Terms(exp_found) => self.expected_found_str_term(exp_found, long_ty_path),
+            ValuePairs::Terms(exp_found) => {
+                self.expected_found_str_term(exp_found, long_ty_path, expected_ty_display)
+            }
             ValuePairs::Aliases(exp_found) => self.expected_found_str(exp_found),
             ValuePairs::ExistentialTraitRef(exp_found) => self.expected_found_str(exp_found),
             ValuePairs::ExistentialProjection(exp_found) => self.expected_found_str(exp_found),
@@ -2087,6 +2141,7 @@ impl<'a, 'tcx> TypeErrCtxt<'a, 'tcx> {
         &self,
         exp_found: ty::error::ExpectedFound<ty::Term<'tcx>>,
         long_ty_path: &mut Option<PathBuf>,
+        expected_ty_display: Option<&str>,
     ) -> Option<(DiagStyledString, DiagStyledString)> {
         let exp_found = self.resolve_vars_if_possible(exp_found);
         if exp_found.references_error() {
@@ -2096,6 +2151,9 @@ impl<'a, 'tcx> TypeErrCtxt<'a, 'tcx> {
         Some(match (exp_found.expected.kind(), exp_found.found.kind()) {
             (ty::TermKind::Ty(expected), ty::TermKind::Ty(found)) => {
                 let (mut exp, mut fnd) = self.cmp(expected, found);
+                if let Some(expected) = expected_ty_display {
+                    exp = DiagStyledString::highlighted(expected.to_string());
+                }
                 // Use the terminal width as the basis to determine when to compress the printed
                 // out type, but give ourselves some leeway to avoid ending up creating a file for
                 // a type that is somewhat shorter than the path we'd write to.

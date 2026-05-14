@@ -2130,8 +2130,15 @@ impl<'a, 'tcx> FnCallDiagCtxt<'a, 'tcx> {
             let (formal_ty, expected_ty) = self.formal_and_expected_inputs[expected_idx];
             let (provided_ty, provided_arg_span) = self.provided_arg_tys[provided_idx];
             let trace = self.mk_trace(provided_arg_span, (formal_ty, expected_ty), provided_ty);
-            let mut err = self.err_ctxt().report_and_explain_type_error(trace, self.param_env, err);
-            self.emit_coerce_suggestions(
+            let expected_ty_display =
+                self.expected_input_ty_alias_snippet(expected_idx, expected_ty);
+            let mut err = self.err_ctxt().report_and_explain_type_error_with_expected_override(
+                trace,
+                self.param_env,
+                err,
+                expected_ty_display.as_deref(),
+            );
+            self.emit_coerce_suggestions_with_expected_override(
                 &mut err,
                 self.provided_args[provided_idx],
                 provided_ty,
@@ -2139,6 +2146,7 @@ impl<'a, 'tcx> FnCallDiagCtxt<'a, 'tcx> {
                     .only_has_type(self.fn_ctxt)
                     .unwrap_or(formal_ty),
                 None,
+                expected_ty_display.as_deref(),
                 None,
             );
             let call_name = self.call_metadata.call_name;
@@ -2275,6 +2283,8 @@ impl<'a, 'tcx> FnCallDiagCtxt<'a, 'tcx> {
                             [*expected_idx];
                     let (provided_ty, provided_span) =
                         self.arg_matching_ctxt.provided_arg_tys[*provided_idx];
+                    let expected_ty_display =
+                        self.expected_input_ty_alias_snippet(*expected_idx, expected_ty);
                     if let Compatibility::Incompatible(error) = compatibility {
                         let trace = self.arg_matching_ctxt.args_ctxt.call_ctxt.mk_trace(
                             provided_span,
@@ -2282,7 +2292,7 @@ impl<'a, 'tcx> FnCallDiagCtxt<'a, 'tcx> {
                             provided_ty,
                         );
                         if let Some(e) = error {
-                            self.err_ctxt().note_type_err(
+                            self.err_ctxt().note_type_err_with_expected_override(
                                 err,
                                 &trace.cause,
                                 None,
@@ -2290,11 +2300,12 @@ impl<'a, 'tcx> FnCallDiagCtxt<'a, 'tcx> {
                                 *e,
                                 true,
                                 None,
+                                expected_ty_display.as_deref(),
                             );
                         }
                     }
 
-                    self.emit_coerce_suggestions(
+                    self.emit_coerce_suggestions_with_expected_override(
                         err,
                         self.provided_args[*provided_idx],
                         provided_ty,
@@ -2302,6 +2313,7 @@ impl<'a, 'tcx> FnCallDiagCtxt<'a, 'tcx> {
                             .only_has_type(self.fn_ctxt)
                             .unwrap_or(formal_ty),
                         None,
+                        expected_ty_display.as_deref(),
                         None,
                     );
                     self.detect_dotdot(err, provided_ty, self.provided_args[*provided_idx]);
@@ -3188,6 +3200,44 @@ impl<'a, 'tcx> CallCtxt<'a, 'tcx> {
             }
             k => span_bug!(self.call_span, "checking argument types on a non-call: `{:?}`", k),
         }
+    }
+
+    fn expected_input_ty_alias_snippet(
+        &self,
+        expected_idx: ExpectedIdx,
+        expected_ty: Ty<'tcx>,
+    ) -> Option<String> {
+        // Keep detailed lowered types, such as function pointers, when the
+        // alias name would hide information useful for the diagnostic.
+        if !expected_ty.is_simple_text() {
+            return None;
+        }
+
+        if self.tuple_arguments == TupleArguments {
+            return None;
+        }
+
+        let def_id = self.fn_def_id?;
+        let decl = self.tcx.hir_get_if_local(def_id)?.fn_decl()?;
+
+        let method_receiver_offset =
+            matches!(self.call_expr.kind, hir::ExprKind::MethodCall(..)) as usize;
+        let input_idx = expected_idx.as_usize() + method_receiver_offset;
+        let input = decl.inputs.get(input_idx)?;
+
+        let hir::TyKind::Path(hir::QPath::Resolved(_, path)) = &input.kind else {
+            return None;
+        };
+        if !matches!(path.res, Res::Def(DefKind::TyAlias, _)) {
+            return None;
+        }
+
+        if self.tcx.sess.source_map().is_imported(input.span) {
+            return None;
+        }
+
+        let snippet = self.tcx.sess.source_map().span_to_snippet(input.span).ok()?;
+        (!snippet.contains('\n')).then_some(snippet)
     }
 
     fn mk_trace(
